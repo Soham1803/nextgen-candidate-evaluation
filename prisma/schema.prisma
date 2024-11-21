@@ -17,17 +17,17 @@ model User {
   id Int @id @default(autoincrement())
   name String
   email String
-  age DateTime
+  age DateTime 
   userinterviews UserInterview[]
 }
 
 model Interview {
   id Int @id @default(autoincrement())
   title String
-  date DateTime
+  date DateTime @default(now())
   topic String
   difficulty Int
-  questions Interviewquestions[]
+  questions Interviewquestion[]
   nquestions Int
   userInterviews UserInterview[]
 }
@@ -38,14 +38,26 @@ model UserInterview {
   interview Interview @relation(fields: [interviewId], references: [id])
   interviewId Int
   createdAt DateTime @default(now())
-
+  videoLink String
+  score Score?
   @@id([userId, interviewId])
 }
 
-model Interviewquestions {
+model Interviewquestion {
   id Int @id @default(autoincrement())
   question String
   answer String
   interview Interview @relation(fields: [interviewId], references: [id])
   interviewId Int
+}
+
+model Score {
+  eye_contact Int
+  speech_quality Int
+  answer_quality Int
+  total_score Int
+  userId Int
+  interviewId Int
+  userInterview UserInterview @relation(fields: [userId, interviewId], references: [userId, interviewId])
+  @@id([userId, interviewId])
 }
