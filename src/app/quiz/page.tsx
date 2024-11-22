@@ -1,12 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Clock, ChevronLeft, ChevronRight, Video, VideoOff, Minimize2, Maximize2, Download } from 'lucide-react'
 import { Montserrat } from 'next/font/google'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { CardFooter } from "@/components/ui/card"
 
 const montserrat = Montserrat({ subsets: ['latin'] })
 
@@ -15,47 +17,91 @@ const questions = [
   {
     id: 1,
     question: "What does CPU stand for?",
-    options: ["Central Processing Unit", "Computer Personal Unit", "Central Processor Unifier", "Central Process Utility"],
     correctAnswer: "Central Processing Unit"
   },
   {
     id: 2,
     question: "Which data structure uses LIFO (Last In First Out)?",
-    options: ["Queue", "Stack", "Linked List", "Tree"],
     correctAnswer: "Stack"
   },
   {
     id: 3,
     question: "What is the time complexity of a binary search?",
-    options: ["O(n)", "O(log n)", "O(n^2)", "O(1)"],
     correctAnswer: "O(log n)"
   },
   {
     id: 4,
     question: "Which programming paradigm does JavaScript primarily support?",
-    options: ["Procedural", "Object-Oriented", "Functional", "All of the above"],
     correctAnswer: "All of the above"
   },
   {
     id: 5,
     question: "What does HTML stand for?",
-    options: ["Hyper Text Markup Language", "High Tech Modern Language", "Hyper Transfer Markup Language", "Hyper Text Management Language"],
     correctAnswer: "Hyper Text Markup Language"
+  },
+  {
+    id: 6,
+    question: "What does RAM stand for?",
+    correctAnswer: "Random Access Memory"
+  },
+  {
+    id: 7,
+    question: "Which sorting algorithm has the best average-case time complexity?",
+    correctAnswer: "Merge Sort"
+  },
+  {
+    id: 8,
+    question: "What is the primary purpose of an operating system?",
+    correctAnswer: "To manage hardware and software resources"
+  },
+  {
+    id: 9,
+    question: "Which keyword is used to declare a constant in JavaScript?",
+    correctAnswer: "const"
+  },
+  {
+    id: 10,
+    question: "What is the function of a compiler?",
+    correctAnswer: "To translate source code into machine code"
   }
 ]
 
 export default function Component() {
   const [currentQuestion, setCurrentQuestion] = useState(0)
-  const [selectedAnswer, setSelectedAnswer] = useState("")
   const [timeLeft, setTimeLeft] = useState(30 * 60) // 30 minutes in seconds
+  const [isRecording, setIsRecording] = useState(false)
+  const [showCameraCheck, setShowCameraCheck] = useState(true)
+  const [cameraReady, setCameraReady] = useState(false)
+  const [isVideoExpanded, setIsVideoExpanded] = useState(false)
+  const [showDownloadDialog, setShowDownloadDialog] = useState(false)
+  const [downloadFileName, setDownloadFileName] = useState('interview-recording')
+  const [isInterviewComplete, setIsInterviewComplete] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const smallVideoRef = useRef<HTMLVideoElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft((prevTime) => (prevTime > 0 ? prevTime - 1 : 0))
-    }, 1000)
+    if (cameraReady && !isRecording && timeLeft > 0) {
+      startRecording()
+    }
+  }, [cameraReady, isRecording, timeLeft])
 
+  useEffect(() => {
+    let timer: NodeJS.Timeout
+    if (cameraReady && timeLeft > 0 && !isInterviewComplete) {
+      timer = setInterval(() => {
+        setTimeLeft((prevTime) => {
+          if (prevTime <= 1) {
+            clearInterval(timer)
+            handleSubmit()
+          }
+          return prevTime - 1
+        })
+      }, 1000)
+    }
     return () => clearInterval(timer)
-  }, [])
+  }, [cameraReady, timeLeft, isInterviewComplete])
 
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60)
@@ -66,23 +112,80 @@ export default function Component() {
   const handleNext = () => {
     if (currentQuestion < questions.length - 1) {
       setCurrentQuestion(currentQuestion + 1)
-      setSelectedAnswer("")
     }
   }
 
   const handlePrevious = () => {
     if (currentQuestion > 0) {
       setCurrentQuestion(currentQuestion - 1)
-      setSelectedAnswer("")
     }
+  }
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+      }
+      if (smallVideoRef.current) {
+        smallVideoRef.current.srcObject = stream
+      }
+      setCameraReady(true)
+      setShowCameraCheck(false)
+    } catch (error) {
+      console.error('Error accessing camera:', error)
+    }
+  }
+
+  const startRecording = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      mediaRecorderRef.current = new MediaRecorder(videoRef.current.srcObject as MediaStream)
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunksRef.current.push(event.data)
+        }
+      }
+      mediaRecorderRef.current.start()
+      setIsRecording(true)
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+    }
+  }
+
+  const toggleVideoSize = () => {
+    setIsVideoExpanded(!isVideoExpanded)
+  }
+
+  const handleDownload = () => {
+    const blob = new Blob(chunksRef.current, { type: 'video/webm' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    document.body.appendChild(a)
+    a.style.display = 'none'
+    a.href = url
+    a.download = `${downloadFileName}.webm`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    setShowDownloadDialog(false)
+  }
+
+  const handleSubmit = () => {
+    stopRecording()
+    setIsInterviewComplete(true)
+    setShowDownloadDialog(true)
   }
 
   return (
     <div className={`flex h-screen bg-gray-950 text-cyan-400 ${montserrat.className}`} style={{ color: '#4dffff' }}>
       <div className="flex-1 p-8 relative">
-        <div className="absolute top-2 right-5 flex items-center bg-gray-800 px-3 py-1 my-8  rounded-full">
-          <div className="w-2 h-2 bg-red-600 rounded-full mr-2 animate-pulse"></div>
-          <span className="text-xs text-cyan-400">Video Recording</span>
+        <div className="absolute top-2 right-5 flex items-center bg-gray-800 px-3 py-1 my-8 rounded-full">
+          <div className={`w-2 h-2 ${isRecording ? 'bg-red-600 animate-pulse' : 'bg-gray-400'} rounded-full mr-2`}></div>
+          <span className="text-xs text-cyan-400">{isRecording ? 'Recording' : 'Not Recording'}</span>
         </div>
         <Card className="bg-gray-900 border-gray-800 text-cyan-400 mt-20">
           <CardHeader>
@@ -96,14 +199,6 @@ export default function Component() {
           </CardHeader>
           <CardContent>
             <h2 className="text-xl mb-4">{questions[currentQuestion].question}</h2>
-            <RadioGroup value={selectedAnswer} onValueChange={setSelectedAnswer}>
-              {questions[currentQuestion].options.map((option, index) => (
-                <div key={index} className="flex items-center space-x-2 mb-2">
-                  <RadioGroupItem value={option} id={`option-${index}`} />
-                  <Label htmlFor={`option-${index}`}>{option}</Label>
-                </div>
-              ))}
-            </RadioGroup>
           </CardContent>
           <CardFooter className="flex justify-between">
             <Button variant="outline" onClick={handlePrevious} disabled={currentQuestion === 0}>
@@ -113,7 +208,25 @@ export default function Component() {
               Next <ChevronRight className="ml-2 h-4 w-4" />
             </Button>
           </CardFooter>
+          <CardFooter className="flex justify-center mt-4">
+            <Button onClick={handleSubmit} variant="default">
+              Submit Interview
+            </Button>
+          </CardFooter>
         </Card>
+        <div className={`fixed ${isVideoExpanded ? 'inset-0 z-50 bg-gray-950/90' : 'bottom-4 right-4'} transition-all duration-300 ease-in-out`}>
+          <div className={`relative ${isVideoExpanded ? 'w-full h-full' : 'w-48 h-36'}`}>
+            <video ref={smallVideoRef} autoPlay muted className="w-full h-full object-cover rounded-lg" />
+            <Button
+              className="absolute top-2 right-2 bg-gray-800/50 hover:bg-gray-700/50"
+              size="icon"
+              onClick={toggleVideoSize}
+              aria-label={isVideoExpanded ? "Minimize video" : "Maximize video"}
+            >
+              {isVideoExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
       </div>
       <div className="w-64 bg-gray-900 p-4 overflow-y-auto">
         <h3 className="text-lg font-semibold mb-4 text-blue-400">Question Palette</h3>
@@ -130,6 +243,51 @@ export default function Component() {
           ))}
         </div>
       </div>
+      <Dialog open={showCameraCheck} onOpenChange={setShowCameraCheck}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Camera Check</DialogTitle>
+            <DialogDescription>
+              Please enable your camera to start the interview. Your video will be recorded during the interview.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-center">
+            <video ref={videoRef} autoPlay muted className="w-full max-w-sm rounded-lg" />
+          </div>
+          <DialogFooter>
+            <Button onClick={startCamera}>
+              {cameraReady ? <Video className="mr-2 h-4 w-4" /> : <VideoOff className="mr-2 h-4 w-4" />}
+              {cameraReady ? 'Camera Ready' : 'Enable Camera'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showDownloadDialog} onOpenChange={setShowDownloadDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Download Recording</DialogTitle>
+            <DialogDescription>
+              Your interview recording is ready. Please enter a name for your file and click download.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid w-full max-w-sm items-center gap-1.5">
+            <Label htmlFor="fileName">File Name</Label>
+            <Input
+              type="text"
+              id="fileName"
+              value={downloadFileName}
+              onChange={(e) => setDownloadFileName(e.target.value)}
+              placeholder="Enter file name"
+            />
+          </div>
+          <DialogFooter>
+            <Button onClick={handleDownload}>
+              <Download className="mr-2 h-4 w-4" />
+              Download
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

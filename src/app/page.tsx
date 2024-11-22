@@ -18,14 +18,14 @@ export default function Component() {
             <Button 
               variant="ghost" 
               className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
-              onClick={() => router.push('/login')}
+              onClick={() => router.push('/auth/signin')}
             >
               Sign In
             </Button>
             <Button 
               variant="outline" 
               className="border-blue-500 text-blue-400 hover:bg-blue-900/20"
-              onClick={() => router.push('/login')}
+              onClick={() => router.push('/auth/signup')}
             >
               Sign Up
             </Button>
@@ -47,7 +47,7 @@ export default function Component() {
           <Button 
             size="lg" 
             className="bg-blue-500 hover:bg-blue-600 text-white px-8 py-6 text-lg"
-            onClick={() => router.push('/login')}
+            onClick={() => router.push('/auth/signin')}
           >
             Get Started <ArrowRight className="ml-2" />
           </Button>
