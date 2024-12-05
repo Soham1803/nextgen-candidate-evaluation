@@ -1,26 +1,12 @@
-import {
-    StreamingTextResponse,
-    createStreamDataTransformer
-} from 'ai';
-// import { ChatOpenAI } from '@langchain/openai';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { PromptTemplate } from '@langchain/core/prompts';
 import { HttpResponseOutputParser } from 'langchain/output_parsers';
+import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 
 import { RunnableSequence } from '@langchain/core/runnables'
+import { NextResponse } from 'next/server';
 
-
-// console.log("LOADER: ", loader);
-
-export const dynamic = 'force-dynamic'
-
-/**
- * Basic memory formatter that stringifies and passes
- * message history directly into the model.
-*/
-const formatMessage = (message) => {
-    return `${message.role}: ${message.content}`;
-};
+import { cleanAndParseJson } from './cleanJSON';
 
 const TEMPLATE = (topic, numberOfQuestions, difficulty) =>  `You are a question generator AI. Generate ${numberOfQuestions} ${difficulty} level questions and their answers about the topic: ${topic}.
 
@@ -33,52 +19,63 @@ Instructions:
 2. Response Format:
    Return the response in the following JSON structure:
    {{
-     "metadata": {{
+     "metadata": {
        "topic": "${topic}",
        "difficulty": "${difficulty}",
        "totalQuestions": ${numberOfQuestions}
-     }},
+     },
      "questions": [
-       {{
+       {
          "question": "<question text>",
          "answer": "<detailed answer>"
-       }}
+       }
      ]
-   }}
+}}
 
 3. Requirements:
    - Generate exactly ${numberOfQuestions} questions
    - Ensure questions match the ${difficulty} difficulty level
+   - The question text '<question text>' should be simple text without any special formatting and escape sequence characters
    - Provide clear and accurate answers
-   - Return only the JSON response with no additional text
+   - Return strictly the JSON response with no additional text
 
 Believe in yourself you can do this, you are programmed to do this. Good luck!
 `;
 
-// console.log("APIKEY: ", process.env.OPENAI_API_KEY);
 
-console.log("OK TILL HERE");
 export async function POST(req) {
-    // try {
-        // Extract the `messages` from the body of the request
-        const { messages } = await req.json();
-        // console.log("MESSAGES: ", messages)
+    try {
+        const body = await req.json();
+        // console.log("Raw body:", body);
 
-        const formattedPreviousMessages = messages.slice(0, -1).map(formatMessage);
-        
-        const currentMessageContent = JSON.parse(messages[messages.length - 1].content);  
-        
-        // console.log("CURRENT MESSAGE CONTENT: ", currentMessageContent);
-        
-        const topic = currentMessageContent['topic'];
-        const difficulty = currentMessageContent['difficulty'];
-        const numberOfQuestions = currentMessageContent['numberOfQuestions'];
+        // Verify the body structure
+        if (!body) {
+            return NextResponse.json({ 
+                error: "Invalid request body. Expected a JSON string." 
+            }, { status: 400 });
+        }
 
-        // console.log("TOPIC: ", topic);
-        // console.log("DIFFICULTY: ", difficulty);
-        // console.log("NUMBER OF QUESTIONS: ", numberOfQuestions);
+        let currentMessageContent;
+        try {
+            currentMessageContent = body;
+        } catch (parseError) {
+            return NextResponse.json({ 
+                error: "Failed to parse request body",
+                details: parseError.message 
+            }, { status: 400 });
+        }
 
-            
+        // console.log("Parsed message content:", currentMessageContent);
+
+        const { topic, difficulty, numberOfQuestions } = currentMessageContent;
+
+        // Validate required fields
+        if (!topic || !difficulty || !numberOfQuestions) {
+            return NextResponse.json({ 
+                error: "Missing required fields: topic, difficulty, or numberOfQuestions" 
+            }, { status: 400 });
+        }
+
         const prompt = PromptTemplate.fromTemplate(TEMPLATE(topic, numberOfQuestions, difficulty));
 
         const model = new ChatGoogleGenerativeAI({
@@ -88,36 +85,30 @@ export async function POST(req) {
             streaming: true,
         });
 
-        /**
-         * Chat models stream message chunks rather than bytes, so this
-         * output parser handles serialization and encoding.
-        */
-       const parser = new HttpResponseOutputParser();
-       
-       const chain = RunnableSequence.from([
-           {
-               question: (input) => input.question,
-            },
-            prompt,
-            model,
-            parser,
-        ]);
-        
-        // Convert the response into a friendly text-stream
-        const stream = await chain.stream({
-            chat_history: formattedPreviousMessages.join('\n'),
-            question: currentMessageContent,
-        });
+        // Modify how you're creating messages
+        const messages = [
+            new SystemMessage(prompt.template),
+            new HumanMessage(JSON.stringify(currentMessageContent))
+        ];
 
-        const response = new StreamingTextResponse(
-            stream.pipeThrough(createStreamDataTransformer()),
-        ); 
+        const result = await model.invoke(messages);
 
-        console.log("RESPONSE: ", response);
+        const data = result.content;
+
+        // console.log("Stringified data:", JSON.stringify(data));
+
+        const cleanData = cleanAndParseJson(data);  
+        const questions = cleanData.questions;   
+
+        // console.log("Generated questions:", cleanData.questions);
+
         
-        // Respond with the stream
-        return response;
-    // } catch (e) {
-    //     return Response.json({ error: e.message }, { status: e.status ?? 500 });
-    // }
+        return NextResponse.json({ message: questions}, { status: 200 });
+    } catch (e) {
+        console.error("Full error:", e);
+        return NextResponse.json({ 
+            error: e.message,
+            stack: e.stack 
+        }, { status: 500 });
+    }
 }
